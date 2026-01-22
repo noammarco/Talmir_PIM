@@ -1,0 +1,20 @@
+# --- Python Garbage (זבל טכני של פייתון) ---
+__pycache__/
+*.pyc
+
+# --- VS Code Settings (הגדרות אישיות של העורך שלך) ---
+.vscode/
+
+# --- Virtual Environment (אם תשתמש בעתיד) ---
+venv/
+env/
+
+# --- DATA & ASSETS (הקבצים הכבדים - נשארים ב-OneDrive בלבד) ---
+# אנחנו לא רוצים שהקוד בגיטהאב יכיל את כל התמונות והאקסלים
+# כי הם משתנים כל הזמן וכבדים מאוד.
+data/assets/
+data/products_db.xlsx
+data/input.xlsx
+
+# --- LOGS (קבצי לוג) ---
+*.log
