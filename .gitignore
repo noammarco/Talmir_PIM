@@ -18,3 +18,7 @@ data/input.xlsx
 
 # --- LOGS (קבצי לוג) ---
 *.log
+
+.venv/
+venv/
+__pycache__/
