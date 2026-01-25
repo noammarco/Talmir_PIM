@@ -1,29 +1,32 @@
 import datetime
 import config
 
-# --- שערי המרה (זמני/קבוע) ---
-EXCHANGE_RATES = {
-    'GBP': 4.85, 
-    'USD': 3.65, 
-    'EUR': 4.00, 
-    'ILS': 1.00  
-}
+# --- אין יותר HARDCODED RATES ---
+# השערים יתקבלו כארגומנט מה-Main
 
-def get_ils_price(cost, currency):
-    """ממיר מחיר לשקלים לצורך השוואה בלבד"""
+def get_ils_price(cost, currency, rates):
+    """
+    ממיר מחיר לשקלים לצורך השוואה בלבד, בהתבסס על שערים חיים.
+    """
     try:
         cost = float(cost)
         currency = str(currency).upper().strip()
-        rate = EXCHANGE_RATES.get(currency, 1.0) 
+        
+        # אם המטבע הוא שקל, השער הוא 1. אחרת, מושכים מהמילון שהתקבל.
+        if currency == 'ILS':
+            rate = 1.0
+        else:
+            rate = rates.get(currency, 1.0) # ברירת מחדל 1.0 אם לא נמצא
+            
         return cost * rate
     except:
-        return 999999.0 
+        return 999999.0 # מחיר עתק כדי שלא ייבחר בטעות
 
 def select_winner(candidates):
     """
     בוחר את הספק המנצח.
     1. עדיפות לפארנל.
-    2. מחיר זול.
+    2. מחיר זול (בשקלים, לפי השערים החיים).
     3. מלאי גבוה.
     """
     if not candidates:
@@ -36,21 +39,22 @@ def select_winner(candidates):
 
     # 2. מיון לפי מחיר ומלאי
     candidates.sort(key=lambda x: x['stock'], reverse=True) # עדיפות למלאי גבוה
-    candidates.sort(key=lambda x: x['ils_cost'])            # עדיפות למחיר נמוך
+    candidates.sort(key=lambda x: x['ils_cost'])            # עדיפות למחיר נמוך (גובר על הקודם)
 
     return candidates[0]
 
 
-def recalculate_row(row):
+def recalculate_row(row, rates):
     """
-    הפונקציה הראשית: עוברת על השורה, בוחרת מנצח ומעדכנת את הראשיים.
+    הפונקציה הראשית: מקבלת שורה + מילון שערים מעודכן.
+    בוחרת מנצח ומעדכנת את ה-Slot Index (מצביע).
     """
     valid_candidates = []
+    
+    # עדכון מטבע מכירה קבוע
+    row['Sell Currency'] = 'ILS'
 
-    # --- עדכון מטבע מכירה (קבוע גלובלי) ---
-    row['Sell Currency'] = 'ILS' # <--- התיקון שלך: תמיד שקלים
-
-    # --- שלב א: איסוף מועמדים ---
+    # --- איסוף מועמדים ---
     for i in range(1, config.MAX_SUPPLIERS + 1):
         prefix = f"Supplier {i}"
         
@@ -59,12 +63,14 @@ def recalculate_row(row):
         
         if not name: continue 
 
-        # משתמשים בסטטוס שכבר נקבע ע"י slot_manager
         if status == config.STATUS_VALID:
             try:
                 cost = float(row.get(f"{prefix} Cost", 0))
                 currency = row.get(f"{prefix} Currency", 'ILS')
                 stock = int(row.get(f"{prefix} Stock", 0))
+                
+                # כאן השינוי: מעבירים את rates לפונקציית העזר
+                ils_price = get_ils_price(cost, currency, rates)
                 
                 valid_candidates.append({
                     'index': i,
@@ -72,43 +78,33 @@ def recalculate_row(row):
                     'name': name,
                     'cost': cost,
                     'currency': currency,
-                    'ils_cost': get_ils_price(cost, currency),
+                    'ils_cost': ils_price,
                     'stock': stock
                 })
             except Exception as e:
                 print(f"⚠️ Error parsing supplier {i} data: {e}")
                 continue
 
-    # --- שלב ב: קבלת החלטות ---
+    # --- בחירת מנצח ---
     winner = select_winner(valid_candidates)
     
     current_time = datetime.datetime.now().strftime("%Y-%m-%d")
 
     if winner:
-        # יש מנצח!
-        prefix = winner['prefix']
-        
-        # עדכון נתוני המנצח
+        # יש מנצח! שומרים רק את ה-Index שלו לקישור דינמי
         row['Best Supplier Name'] = winner['name']
-        row['Cost'] = row.get(f"{prefix} Cost")
-        row['Buy Currency'] = row.get(f"{prefix} Currency")
-        row['Stock'] = row.get(f"{prefix} Stock")
-        row['Lead Time'] = row.get(f"{prefix} Lead Time")
-        row['MOQ'] = row.get(f"{prefix} MOQ")
-        row['Multiple'] = row.get(f"{prefix} Multiple")
+        row['Best Supplier Slot'] = winner['index']
         
         row['Show in Website'] = True
         row['Drop Date'] = None 
         row['Date Updated'] = current_time
 
     else:
-        # אין אף ספק תקין
+        # אין מנצח
         row['Best Supplier Name'] = "None"
+        row['Best Supplier Slot'] = ""
         
-        # ניהול Drop Date
         current_show_status = row.get('Show in Website')
-        
-        # אם זה היה פעיל ועכשיו לא -> נעדכן תאריך הסרה
         if current_show_status is True or str(current_show_status).upper() == 'TRUE': 
              row['Drop Date'] = current_time
         elif not row.get('Drop Date'): 

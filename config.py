@@ -71,6 +71,7 @@ WINNER_COLUMNS = [
 # 3. עמודות ניהול (Management)
 MANAGEMENT_COLUMNS = [
     "Best Supplier Name", 
+    "Best Supplier Slot", # <--- הוסף: שומר את האינדקס (1/2/3) לקישור דינמי
     "Show in Website",    
     "Drop Date"           
 ]
@@ -104,5 +105,5 @@ for i in range(1, MAX_SUPPLIERS + 1):
 # נוסחאות מתעדכנות בכל מקרה ע"י ה-Excel Manager.
 DYNAMIC_COLUMNS = [
     'Cost', 'Buy Currency', 'Stock', 'Lead Time', 'Date Updated', 
-    'MOQ', 'Multiple', 'Show in Website', 'Drop Date', 'Best Supplier Name'
+    'MOQ', 'Multiple', 'Show in Website', 'Drop Date', 'Best Supplier Name', 'Best Supplier Slot'
 ]

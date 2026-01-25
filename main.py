@@ -8,15 +8,32 @@ from adapters import farnell_adapter
 from logic import slot_manager, recalculator, currency_manager
 from utils import excel_manager, assets_manager
 
+# --- פונקציית עזר לתיקון הנתונים ---
+def sanitize_row_data(row_data):
+    """
+    ממיר את כל הנתונים ל-string כדי למנוע קריסות של Pandas.
+    הסיבה: ה-DB נטען כ-str כדי לשמור על אפסים במק"טים.
+    מספרים יומרו חזרה למספרים ב-excel_manager בעת השמירה.
+    """
+    clean_data = {}
+    for k, v in row_data.items():
+        if v is None:
+            clean_data[k] = ""
+        else:
+            clean_data[k] = str(v) # המרה לטקסט
+    return clean_data
+
 def main():
     print("--- 🚀 Talmir PIM: Start Update Process (Multi-Vendor) ---")
     
+    # 1. שליפת שערים חיים
     rates = {
         'GBP': currency_manager.get_rate('GBP'),
         'USD': currency_manager.get_rate('USD'),
         'EUR': currency_manager.get_rate('EUR')
     }
     
+    # 2. טעינת בסיס נתונים
     df_db = excel_manager.load_or_create_db()
     
     try:
@@ -34,10 +51,9 @@ def main():
     for i, input_sku in enumerate(input_skus):
         print(f"[{i+1}/{len(input_skus)}] Processing SKU: {input_sku}...", end=" ")
         
-        # 1. שליפת נתונים מהספק
+        # 3. שליפת נתונים מהספק
         data = farnell_adapter.fetch_product_data(input_sku)
         
-        # הכנה לניהול השורה
         row_index = None
         row_data = None
         
@@ -52,9 +68,16 @@ def main():
         if not data:
             if row_data:
                 print(f"⚠️ Not found in Farnell (Updating Status)...", end=" ")
+                # סימון הספק כ-Not Found
                 row_data = slot_manager.mark_supplier_not_found(row_data, 'FARNELL')
-                row_data = recalculator.recalculate_row(row_data)
+                
+                # חישוב מחדש (עם שערים!)
+                row_data = recalculator.recalculate_row(row_data, rates) # <--- התיקון כאן!
+                
+                # המרה לטקסט ושמירה
+                row_data = sanitize_row_data(row_data) 
                 df_db.iloc[row_index] = pd.Series(row_data)
+                
                 updated_count += 1
                 print("Done.")
             else:
@@ -64,21 +87,15 @@ def main():
 
         # --- תרחיש ב': ה-API החזיר נתונים ---
         
-        # === התיקון הקריטי: שומר הסף למוצרים חדשים ===
-        # אם המוצר חדש, אנחנו בודקים את הסטטוס שלו לפני שממשיכים.
+        # שומר הסף (Gatekeeper) למוצרים חדשים
         if row_index is None:
-            # נותנים ל-Slot Manager לחשב את הסטטוס המדויק (כולל לוגיקת ארה"ב, NLS וכו')
             calculated_status = slot_manager.determine_detailed_status(data)
-            
-            # אם הסטטוס הוא לא Valid (כלומר הוא NLM, NLS, או Direct Ship בעייתי) -> מדלגים!
             if calculated_status != config.STATUS_VALID:
                 print(f"⛔ Skipped (New & Invalid Status: {calculated_status}).")
                 skipped_count += 1
                 continue
 
-        # אם עברנו את השומר, ממשיכים כרגיל...
-
-        # 2. ניהול נכסים
+        # 4. ניהול נכסים (תמונות/דפי נתונים)
         my_sku = data.get('2_My_SKU')
         image_url = data.get('Extra_Image')
         if image_url:
@@ -98,7 +115,7 @@ def main():
             else:
                 data['Extra_Datasheet'] = existing_ds
 
-        # 3. עדכון ה-Slots
+        # 5. עדכון ה-Slots (חנייה)
         if row_data:
             row_data = slot_manager.update_product_slots(row_data, data, 'FARNELL')
             print("🔄 Updated Slot...", end=" ")
@@ -108,10 +125,13 @@ def main():
             print("✨ New Product...", end=" ")
             new_products_count += 1
 
-        # 4. חישוב מנצח
-        row_data = recalculator.recalculate_row(row_data)
+        # 6. חישוב מנצח
+        # מעבירים את ה-rates כדי שהחישוב יהיה מדויק לפי השער היומי
+        row_data = recalculator.recalculate_row(row_data, rates) # <--- התיקון כאן!
 
-        # 5. שמירה ל-DataFrame
+        # 7. שמירה ל-DataFrame (אחרי ניקוי טיפוסים)
+        row_data = sanitize_row_data(row_data)
+
         if row_index is not None:
             df_db.iloc[row_index] = pd.Series(row_data)
         else:
@@ -121,6 +141,7 @@ def main():
         updated_count += 1
         print("✅ Done.")
 
+    # 8. שמירה סופית לאקסל
     if updated_count > 0:
         excel_manager.save_styled_db(df_db, rates)
         print(f"\n🎉 Process Complete Summary:")
