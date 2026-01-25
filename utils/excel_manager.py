@@ -6,13 +6,15 @@ from datetime import datetime
 import config
 
 # מיפוי: איזה עמודה ראשית מקושרת לאיזה שדה אצל הספק
+# הוספנו את 'Best Supplier Name' -> 'Name'
 LINK_MAP = {
     'Cost': 'Cost',
     'Buy Currency': 'Currency',
     'Stock': 'Stock',
     'Lead Time': 'Lead Time',
     'MOQ': 'MOQ',
-    'Multiple': 'Multiple'
+    'Multiple': 'Multiple',
+    'Best Supplier Name': 'Name' # <--- הוספנו את זה! כעת השם יהיה נוסחה דינמית
 }
 
 def load_or_create_db():
@@ -51,7 +53,6 @@ def save_styled_db(df, rates_dict):
     
     styles = _create_styles(workbook)
     
-    # כתיבת כותרות
     for col_num, value in enumerate(config.FINAL_COLUMNS):
         worksheet_prod.write(0, col_num, value, styles['header'])
         
@@ -59,15 +60,10 @@ def save_styled_db(df, rates_dict):
                 "Supplier 1 MOQ", "Supplier 2 MOQ", "Supplier 3 MOQ",
                 "Supplier 1 Multiple", "Supplier 2 Multiple", "Supplier 3 Multiple", "Best Supplier Slot"]
     
-    # --- הכנת האותיות לנוסחאות ---
-    
-    # 1. אותיות לעמודות הראשיות (לחישובי מע"מ)
     col_cost = get_col_letter("Cost")
     col_currency = get_col_letter("Buy Currency")
     col_price_no_vat = get_col_letter("Price No VAT")
-    
-    # 2. אותיות לעמודת ההחלטה (Best Supplier Slot)
-    col_slot_decision = get_col_letter("Best Supplier Slot") # התא שקובע מי המנצח (1, 2, 3)
+    col_slot_decision = get_col_letter("Best Supplier Slot")
 
     for row_idx in range(len(df)):
         excel_row = row_idx + 2 
@@ -77,46 +73,36 @@ def save_styled_db(df, rates_dict):
         for col_idx, col_name in enumerate(config.FINAL_COLUMNS):
             val = df.iloc[row_idx, col_idx]
             
-            # --- 1. עיצוב זמינות (Stock Lasts) ---
+            # 1. Lead Time Red
             val_str = str(val).strip().lower()
             if "Lead Time" in col_name and "stock lasts" in val_str:
                 worksheet_prod.write(excel_row-1, col_idx, val, styles['red_bold'])
                 continue
 
-            # --- 2. בוליאניים ---
+            # 2. Booleans
             if col_name in ["Hazardous", "US Stock", "Show in Website"]:
                 bool_val = str(val).lower() == 'true'
                 worksheet_prod.write_boolean(excel_row-1, col_idx, bool_val, current_set['base'])
                 continue
 
-            # --- 3. קישור דינמי אמיתי (Excel Logic) ---
-            # הנוסחה: =IFERROR(CHOOSE($SlotCell, Sup1Cell, Sup2Cell, Sup3Cell), "")
-            
+            # 3. Dynamic Linking (עכשיו כולל גם את השם!)
             if col_name in LINK_MAP and col_slot_decision:
                 suffix = LINK_MAP[col_name]
-                
-                # מציאת האותיות של שלושת הספקים עבור השדה הנוכחי
                 sup1 = get_col_letter(f"Supplier 1 {suffix}")
                 sup2 = get_col_letter(f"Supplier 2 {suffix}")
                 sup3 = get_col_letter(f"Supplier 3 {suffix}")
                 
                 if sup1 and sup2 and sup3:
-                    # בניית הנוסחה
-                    # CHOOSE(Slot, Sup1, Sup2, Sup3)
-                    # IFERROR עוטף את זה למקרה שהסלוט ריק או 0
                     formula = f'=IFERROR(CHOOSE({col_slot_decision}{excel_row},{sup1}{excel_row},{sup2}{excel_row},{sup3}{excel_row}),"")'
                     
-                    # קביעת פורמט
-                    fmt = current_set['num']
+                    fmt = current_set['base'] # ברירת מחדל (טקסט)
                     if col_name in ["Stock", "MOQ", "Multiple"]: fmt = current_set['int']
-                    if col_name in ["Buy Currency", "Lead Time"]: fmt = current_set['base']
+                    if col_name in ["Cost"]: fmt = current_set['num'] # מחיר צריך פורמט מספר
                     
                     worksheet_prod.write_formula(excel_row-1, col_idx, formula, fmt)
                     continue
 
-            # --- 4. שאר הנוסחאות (עלות שקלים, מע"מ וכו') ---
-            
-            # עלות בשקלים לכל ספק
+            # 4. Supplier Cost ILS
             if "Cost ILS" in col_name:
                 prefix = col_name.replace(" Cost ILS", "") 
                 sup_cost_letter = get_col_letter(f"{prefix} Cost")
@@ -127,7 +113,7 @@ def save_styled_db(df, rates_dict):
                     worksheet_prod.write_formula(excel_row-1, col_idx, formula, current_set['num'])
                     continue
 
-            # חישובים ראשיים
+            # 5. Main Calcs
             elif col_name == "Real ILS Cost" and col_cost and col_currency:
                 formula = f'=IF(OR({col_cost}{excel_row}="",{col_currency}{excel_row}=""),"",{col_cost}{excel_row}*VLOOKUP({col_currency}{excel_row},\'Financial Variables\'!$A$3:$D$20,2,FALSE))'
                 worksheet_prod.write_formula(excel_row-1, col_idx, formula, current_set['num'])
@@ -148,7 +134,7 @@ def save_styled_db(df, rates_dict):
                 worksheet_prod.write_formula(excel_row-1, col_idx, formula, current_set['num'])
                 continue
 
-            # --- 5. כתיבה רגילה ---
+            # 6. Values
             try:
                 if col_name in int_cols or "Cost" in col_name:
                     if val and val != "": val = float(val)
@@ -170,7 +156,7 @@ def save_styled_db(df, rates_dict):
     writer.close()
     print("✅ Database saved successfully.")
 
-# ... (פונקציות העזר _create_styles, _set_column_widths, _create_financial_sheet נשארות ללא שינוי) ...
+# ... (פונקציות העזר ללא שינוי) ...
 def _create_styles(workbook):
     base_props = {'border': 1, 'valign': 'vcenter'}
     header = workbook.add_format({'bold': True, 'fg_color': '#548235', 'font_color': 'white', 'border': 1, 'valign': 'vcenter', 'text_wrap': True, 'align': 'center'})
