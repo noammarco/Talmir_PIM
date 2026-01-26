@@ -107,3 +107,38 @@ DYNAMIC_COLUMNS = [
     'Cost', 'Buy Currency', 'Stock', 'Lead Time', 'Date Updated', 
     'MOQ', 'Multiple', 'Show in Website', 'Drop Date', 'Best Supplier Name', 'Best Supplier Slot'
 ]
+
+# --- הגדרות לוגים ומעקב (Module E) ---
+CHANGES_LOG_FILENAME = os.path.join(DATA_DIR, 'changes_log.xlsx')
+LOG_RETENTION_DAYS = 180
+
+# שדות למעקב כללי (ערכים פשוטים)
+# הסרנו מכאן את Best Supplier Name ואת Price With VAT כדי לטפל בהם בנפרד
+TRACKED_SIMPLE_FIELDS = [
+    'SKU',                
+    'MOQ', 
+    'Multiple', 
+    'Show in Website', 
+    'Product Name', 
+    'Description'
+]
+
+# שדות נכסים
+TRACKED_ASSETS = ['Image', 'Datasheet']
+
+# --- הגדרות עיצוב לוג (צבעי רקע) ---
+# הערה: אלו קודי צבע HEX עבור אקסל
+LOG_COLORS = {
+    'New Product': "#8BC5FF",          # כחול בהיר
+    'Cost Increase 📈': "#FF5E00",     # כתום
+    'Cost Decrease 📉': "#40FFB6",     # תכלת/ציאן
+    'Supplier Added': "#C9AB00",       # צהוב
+    'Supplier Status Change': "#FFFF6D", # צהוב בהיר יותר
+    'Update': "#FF63B1",               # ורוד
+    'Supplier Removed': "#666363",     # אפור
+    'Selling Price Update': "#AAAAFA", # סגול בהיר (Lavender)
+    'Initial Cost': "#CEFFFD",         # לבן
+    'Asset Added': "#ECFF99",          # סגול לילך
+    'Asset Removed': "#7D8F5C",        # חום בהיר (Tan)
+    'Price Change': '#FF99CC'          # גיבוי (כמו Update)
+}

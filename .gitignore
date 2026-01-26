@@ -15,6 +15,7 @@ env/
 data/assets/
 data/products_db.xlsx
 data/input.xlsx
+data/changes_log.xlsx
 
 # --- LOGS (קבצי לוג) ---
 *.log
