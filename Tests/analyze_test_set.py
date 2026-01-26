@@ -16,13 +16,13 @@ import config
 
 # --- רשימת הזהב לבדיקה ---
 TEST_SKUS = [
-    "9339060",  # CONTROL (Valid Product)
-    "1310331",  # US STOCK (Should Pass)
-    "3371040",  # DIRECT SHIP (Should Fail)
-    "1369171",  # NLS (Should Fail if 0 stock)
-    "3238895",  # NLM (Should Fail if 0 stock)
-    "2491567",  # Valid but 0 stock (Should Pass/Update)
-    "1139520"   # Available until stock lasts (Should Pass + Note)
+    "9339060",  # נגד (Passive)
+    "1310331",  # מחבר/טרמינל
+    "3371040",  # כבל אודיו
+    "1369171",  # לד (Optoelectronics)
+    "3238895",  # טרמינל בלוק
+    "2491567",  # מתאם תקשורת
+    "1139520"   # לד נוסף
 ]
 
 HEADERS = {
@@ -77,27 +77,33 @@ def fetch_raw_data(sku):
 
 def main():
     results = {}
-    print("--- 🧪 STARTING TEST SET ANALYSIS ---")
+    print("--- 🕵️ HUNTING FOR CATEGORIES ---")
     
     for sku in TEST_SKUS:
         raw_data = fetch_raw_data(sku)
         if raw_data:
-            # אנחנו שומרים רק את השדות הקריטיים לניתוח כדי לא להעמיס,
-            # אבל משאירים את המבנה המקורי
+            # כאן השינוי הגדול: אנחנו שומרים את כל השדות החשודים כקטגוריה
             results[sku] = {
-                "productStatus": raw_data.get("productStatus"),
-                "inv": raw_data.get("inv"),
-                "stock": raw_data.get("stock"), # מכיל את המחסנים וה-Lead Time
-                "displayName": raw_data.get("displayName")
+                "displayName": raw_data.get("displayName"),
+                # ניסיון 1: שדה ישיר
+                "category": raw_data.get("category"), 
+                # ניסיון 2: משפחה
+                "family": raw_data.get("family"),
+                # ניסיון 3: הורים (בד"כ מכיל את הנתיב המלא)
+                "parents": raw_data.get("parents"),
+                # ניסיון 4: קבוצה
+                "merchandiseCategory": raw_data.get("merchandiseCategory"),
+                # ניסיון 5: מזהה קבוצה
+                "feGroup": raw_data.get("feGroup")
             }
     
     # שמירה לקובץ
-    output_file = os.path.join(parent_dir, 'test_set_dump.json')
+    output_file = os.path.join(parent_dir, 'category_test_dump.json')
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=4)
     
-    print(f"\n📄 Dump saved to: {output_file}")
-    print("Please copy the content of that file and send it to me!")
+    print(f"\n📄 Category Dump saved to: {output_file}")
+    print("👉 Please send me the content of this file so we can map it!")
 
 if __name__ == "__main__":
     main()

@@ -23,3 +23,5 @@ data/changes_log.xlsx
 .venv/
 venv/
 __pycache__/
+
+Tests/Output/
