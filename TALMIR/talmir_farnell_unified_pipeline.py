@@ -6,7 +6,8 @@ import re
 import hashlib
 import hmac
 import base64
-import random  # <--- הוספנו רנדומליות
+import random
+import sys  # <--- הוספנו כדי לאפשר יציאה עם קודי שגיאה למאקרו
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 
@@ -22,8 +23,8 @@ OUTPUT_FILE = 'talmir_farnell_unified.csv'
 BATCH_SIZE = 5                             
 
 # --- הגדרות קצב (מעודכן לטווח אנושי) ---
-MIN_SLEEP = 2.5         # מינימום שניות המתנה
-MAX_SLEEP = 6.0         # מקסימום שניות המתנה
+MIN_SLEEP = 2.5         
+MAX_SLEEP = 6.0         
 
 # --- רשימת תחפושות (User Agents) ---
 USER_AGENTS = [
@@ -45,7 +46,6 @@ base_talmir_url = "https://www.talmir.co.il"
 # ==========================================
 
 def get_random_headers():
-    """בוחר זהות דפדפן רנדומלית"""
     return {
         'User-Agent': random.choice(USER_AGENTS),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -71,7 +71,6 @@ def find_link_by_sku_text(soup, sku):
 
 def get_talmir_data(sku, session):
     search_url = f"https://www.talmir.co.il/s?q={sku}"
-    # שימוש בהדרים רנדומליים גם לטלמיר (בטוח יותר)
     headers = get_random_headers()
     
     try:
@@ -105,15 +104,13 @@ def generate_signature(op_name, timestamp):
     return base64.b64encode(signature).decode('utf-8')
 
 # ==========================================
-# הפונקציה החכמה - Exponential Backoff + User Agents
+# הפונקציה החכמה - מדווחת החוצה על חסימות למאקרו
 # ==========================================
 def get_farnell_code_smart(farnell_sku, session):
     url = "https://api.element14.com/catalog/products"
     
-    # זמני המתנה במידה ויש חסימה (בשניות): דקה, 5 דקות, 15 דקות, שעה
-    wait_times = [60, 300, 900, 3600] 
-    
-    for attempt, wait_time in enumerate(wait_times):
+    # צמצמנו ל-2 ניסיונות מהירים בלבד. המאקרו יטפל בהמתנות ארוכות.
+    for attempt in range(2):
         timestamp = get_timestamp()
         op_name = 'searchByPremierFarnellPartNumber'
         signature = generate_signature(op_name, timestamp)
@@ -130,11 +127,9 @@ def get_farnell_code_smart(farnell_sku, session):
             'userInfo.signature': signature
         }
         
-        # --- כאן השינוי הגדול: החלפת זהות בכל ניסיון ---
         headers = get_random_headers()
         
         try:
-            # שימוש ב-session קיים
             response = session.get(url, params=params, headers=headers, timeout=15)
             
             # --- הצלחה ---
@@ -147,18 +142,17 @@ def get_farnell_code_smart(farnell_sku, session):
                      products = data['keywordSearchReturn']['products']
 
                 if products:
-                    return products[0].get('commodityClassCode'), False 
+                    return products[0].get('commodityClassCode'), "OK"
                 else:
-                    return None, False 
+                    return None, "OK"
             
             # --- חסימה (403/429) ---
             elif response.status_code in [403, 429]:
-                print(f"\n⚠️ חסימה (קוד {response.status_code}). ניסיון {attempt+1}. נכנס להמתנה של {wait_time/60} דקות...")
-                time.sleep(wait_time) # הולך לישון ומנסה שוב באותה לולאה
-                continue 
+                print(f"\n⚠️ זוהתה חסימת API קשיחה (קוד {response.status_code}). יוצא החוצה למאקרו...")
+                return None, "BLOCKED"
             
+            # --- שגיאות שרת (500 וכו') ---
             else:
-                # שגיאות אחרות (500 וכו') - המתנה קצרה
                 time.sleep(5)
                 continue
 
@@ -166,25 +160,23 @@ def get_farnell_code_smart(farnell_sku, session):
             time.sleep(5)
             continue
             
-    # אם הגענו לפה, נכשלו כל שלבי ההמתנה
+    # אם הגענו לפה, הייתה שגיאה לא ידועה
     print(f"\n❌ כישלון טוטאלי עבור {farnell_sku}. מוותר עליו.")
-    return None, True # True = שגיאה קריטית
+    return None, "ERROR"
 
 # ==========================================
 # Main Loop
 # ==========================================
-print("--- ריצה חכמה (Siege Mode: Jitter + Headers) ---")
+print("--- ריצה מפוקחת (נשלט ע\"י מאקרו) ---")
 
-# 1. Load Data
 try:
     df_input = pd.read_csv(input_path, dtype=str) 
     all_skus = [str(x).strip() for x in df_input.iloc[:, 0].dropna().unique().tolist()]
     print(f"סה\"כ מק\"טים: {len(all_skus)}")
 except FileNotFoundError:
     print("קובץ חסר.")
-    exit()
+    sys.exit(1) # קוד 1 = שגיאה כללית
 
-# 2. Resume Logic (בדיוק המקורי שלך)
 start_index = 0
 if os.path.exists(output_path):
     try:
@@ -201,7 +193,6 @@ if os.path.exists(output_path):
 else:
     pd.DataFrame(columns=['Talmir_SKU', 'Talmir_Category', 'Farnell_SKU', 'Commodity_Code']).to_csv(output_path, index=False, encoding='utf-8-sig')
 
-# 3. Processing
 session = requests.Session()
 batch = []
 
@@ -209,24 +200,21 @@ for i in range(start_index, len(all_skus)):
     talmir_sku = all_skus[i]
     print(f"[{i+1}/{len(all_skus)}] מעבד {talmir_sku}...", end=" ")
 
-    # Talmir Scraping
     talmir_cat = get_talmir_data(talmir_sku, session)
     if not talmir_cat:
         print("Skipped (חסר בטלמיר)")
-        # גם כשמדלגים - לחכות רנדומלית
         time.sleep(random.uniform(0.5, 1.5))
         continue 
 
     farnell_sku = talmir_sku[::-1]
     
-    # Smart Farnell Call
-    comm_code, is_critical = get_farnell_code_smart(farnell_sku, session)
+    comm_code, status = get_farnell_code_smart(farnell_sku, session)
     
-    if is_critical:
-        # אם נכשלנו גם אחרי המתנה של שעה - עוצרים הכל
-        print("עצירת חירום סופית.")
+    # לוגיקת הפיקוח מול המאקרו
+    if status == "BLOCKED":
+        print("\n🛑 עוצר את הסקריפט ומשאיר למאקרו להמתין 24 שעות.")
         if batch: pd.DataFrame(batch).to_csv(output_path, mode='a', header=False, index=False, encoding='utf-8-sig')
-        break
+        sys.exit(2) # קוד 2 = חסימה זמנית, המאקרו יזהה את זה וימתין.
 
     if comm_code:
         print(f"OK! Code: {comm_code}")
@@ -243,9 +231,12 @@ for i in range(start_index, len(all_skus)):
         pd.DataFrame(batch).to_csv(output_path, mode='a', header=False, index=False, encoding='utf-8-sig')
         batch = []
     
-    # שינה רנדומלית כדי להיראות אנושי
     sleep_time = random.uniform(MIN_SLEEP, MAX_SLEEP)
     time.sleep(sleep_time)
 
+# סיום טבעי של כל המק"טים בקובץ
 if batch:
     pd.DataFrame(batch).to_csv(output_path, mode='a', header=False, index=False, encoding='utf-8-sig')
+
+print("\n🎉 הסקריפט עבר על כל המוצרים בקובץ בהצלחה!")
+sys.exit(0) # קוד 0 = סיום מוחלט והצלחה. המאקרו יעצור.
